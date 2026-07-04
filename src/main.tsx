@@ -33,7 +33,7 @@ function playAlarmSound() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename="/personal-assistant">
       <App />
     </BrowserRouter>
   </StrictMode>,
