@@ -13,7 +13,8 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
 }
 
 export default function Settings({ user }: { user: User }) {
-  const [limitMinutes, setLimitMinutes] = useState(120)
+  const [hours, setHours] = useState(2)
+  const [minutes, setMinutes] = useState(0)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [notifStatus, setNotifStatus] = useState<'idle' | 'loading' | 'enabled' | 'denied'>('idle')
@@ -25,18 +26,24 @@ export default function Settings({ user }: { user: User }) {
       .eq('user_id', user.id)
       .maybeSingle()
       .then(({ data }) => {
-        if (data) setLimitMinutes(Math.floor(data.daily_limit_seconds / 60))
+        if (data) {
+          const total = Math.floor(data.daily_limit_seconds / 60)
+          setHours(Math.floor(total / 60))
+          setMinutes(total % 60)
+        }
       })
 
     if (Notification.permission === 'granted') setNotifStatus('enabled')
     else if (Notification.permission === 'denied') setNotifStatus('denied')
   }, [user.id])
 
+  const totalMinutes = hours * 60 + minutes
+
   async function saveLimit() {
     setSaving(true)
     const { error } = await supabase
       .from('user_settings')
-      .upsert({ user_id: user.id, daily_limit_seconds: limitMinutes * 60 }, { onConflict: 'user_id' })
+      .upsert({ user_id: user.id, daily_limit_seconds: totalMinutes * 60 }, { onConflict: 'user_id' })
     setSaving(false)
     if (error) {
       alert('Save failed: ' + JSON.stringify(error))
@@ -77,25 +84,37 @@ export default function Settings({ user }: { user: User }) {
 
       <div className="bg-surface rounded-2xl p-5 space-y-4">
         <h2 className="font-semibold">Daily Gaming Limit</h2>
-        <div className="flex items-center gap-4">
-          <input
-            type="range"
-            min={15}
-            max={480}
-            step={15}
-            value={limitMinutes}
-            onChange={e => setLimitMinutes(Number(e.target.value))}
-            className="flex-1 accent-accent"
-          />
-          <span className="text-accent font-bold w-16 text-right">
-            {limitMinutes >= 60
-              ? `${Math.floor(limitMinutes / 60)}h${limitMinutes % 60 ? ` ${limitMinutes % 60}m` : ''}`
-              : `${limitMinutes}m`}
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 flex flex-col items-center gap-1">
+            <label className="text-xs text-subtext">Hours</label>
+            <input
+              type="number"
+              min={0}
+              max={23}
+              value={hours}
+              onChange={e => setHours(Math.max(0, Math.min(23, Number(e.target.value) || 0)))}
+              className="w-full text-center text-2xl font-bold bg-overlay rounded-xl py-3 text-accent outline-none focus:ring-2 focus:ring-accent"
+            />
+          </div>
+          <span className="text-2xl font-bold text-subtext mt-4">:</span>
+          <div className="flex-1 flex flex-col items-center gap-1">
+            <label className="text-xs text-subtext">Minutes</label>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={minutes}
+              onChange={e => setMinutes(Math.max(0, Math.min(59, Number(e.target.value) || 0)))}
+              className="w-full text-center text-2xl font-bold bg-overlay rounded-xl py-3 text-accent outline-none focus:ring-2 focus:ring-accent"
+            />
+          </div>
         </div>
+        {totalMinutes === 0 && (
+          <p className="text-yellow text-xs">Set at least 1 minute.</p>
+        )}
         <button
           onClick={saveLimit}
-          disabled={saving}
+          disabled={saving || totalMinutes === 0}
           className="w-full py-3 bg-accent text-base font-semibold rounded-xl disabled:opacity-50"
         >
           {saved ? 'Saved!' : saving ? 'Saving…' : 'Save Limit'}
