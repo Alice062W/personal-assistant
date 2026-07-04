@@ -34,10 +34,14 @@ export default function Settings({ user }: { user: User }) {
 
   async function saveLimit() {
     setSaving(true)
-    await supabase
+    const { error } = await supabase
       .from('user_settings')
       .upsert({ user_id: user.id, daily_limit_seconds: limitMinutes * 60 })
     setSaving(false)
+    if (error) {
+      alert('Save failed: ' + error.message)
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }

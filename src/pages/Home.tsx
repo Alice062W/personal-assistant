@@ -12,11 +12,22 @@ export default function Home({ user }: { user: User }) {
   const [todayElapsed, setTodayElapsed] = useState(0)
   const [dailyLimit, setDailyLimit] = useState(DEFAULT_LIMIT)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [actionLoading, setActionLoading] = useState(false)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sessionsRef = useRef<GamingSession[]>([])
 
   useEffect(() => {
     loadData()
-    return () => { if (tickRef.current) clearInterval(tickRef.current) }
+
+    // Reload when user comes back to this tab
+    const handleVisibility = () => { if (!document.hidden) loadData() }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [user.id])
 
   async function loadData() {
@@ -36,17 +47,23 @@ export default function Home({ user }: { user: User }) {
         .maybeSingle(),
     ])
 
-    const sessions = sessionsResult.data ?? []
+    if (sessionsResult.error) {
+      setError('Failed to load sessions: ' + sessionsResult.error.message)
+      setLoading(false)
+      return
+    }
+
+    const sessions: GamingSession[] = sessionsResult.data ?? []
+    sessionsRef.current = sessions
+
     if (settingsResult.data) setDailyLimit(settingsResult.data.daily_limit_seconds)
 
     const active = sessions.find(s => !s.ended_at) ?? null
     setActiveSession(active)
-
-    const elapsed = computeElapsed(sessions)
-    setTodayElapsed(elapsed)
+    setTodayElapsed(computeElapsed(sessions))
     setLoading(false)
 
-    if (active) startTick(active, sessions)
+    if (active) startTick()
   }
 
   function computeElapsed(sessions: GamingSession[]): number {
@@ -58,14 +75,16 @@ export default function Home({ user }: { user: User }) {
     }, 0)
   }
 
-  function startTick(_active: GamingSession, allSessions: GamingSession[]) {
+  function startTick() {
     if (tickRef.current) clearInterval(tickRef.current)
     tickRef.current = setInterval(() => {
-      setTodayElapsed(computeElapsed(allSessions))
+      setTodayElapsed(computeElapsed(sessionsRef.current))
     }, 1000)
   }
 
   async function handleStart() {
+    setError('')
+    setActionLoading(true)
     const now = new Date().toISOString()
     const { data, error } = await supabase
       .from('gaming_sessions')
@@ -73,34 +92,31 @@ export default function Home({ user }: { user: User }) {
       .select()
       .single()
 
-    if (error || !data) return
-    setActiveSession(data)
-    const allSessions = [...(await getTodaySessions()), data]
-    startTick(data, allSessions)
+    setActionLoading(false)
+    if (error) { setError('Failed to start: ' + error.message); return }
+    if (!data) { setError('Failed to start: no data returned'); return }
+
+    const newSession = data as GamingSession
+    sessionsRef.current = [...sessionsRef.current, newSession]
+    setActiveSession(newSession)
+    startTick()
   }
 
   async function handleStop() {
     if (!activeSession) return
+    setActionLoading(true)
     const now = new Date().toISOString()
-    await supabase
+    const { error } = await supabase
       .from('gaming_sessions')
       .update({ ended_at: now })
       .eq('id', activeSession.id)
 
+    setActionLoading(false)
+    if (error) { setError('Failed to stop: ' + error.message); return }
+
     if (tickRef.current) clearInterval(tickRef.current)
     setActiveSession(null)
     await loadData()
-  }
-
-  async function getTodaySessions(): Promise<GamingSession[]> {
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
-    const { data } = await supabase
-      .from('gaming_sessions')
-      .select('*')
-      .eq('user_id', user.id)
-      .gte('started_at', todayStart.toISOString())
-    return data ?? []
   }
 
   const progress = Math.min(todayElapsed / dailyLimit, 1)
@@ -119,7 +135,13 @@ export default function Home({ user }: { user: User }) {
         </div>
       </ProgressRing>
 
-      {overLimit && (
+      {error && (
+        <div className="bg-red/20 border border-red/40 text-red rounded-xl px-4 py-3 text-sm text-center w-full">
+          {error}
+        </div>
+      )}
+
+      {overLimit && !error && (
         <div className="bg-red/20 border border-red/40 text-red rounded-xl px-4 py-3 text-sm text-center">
           Daily limit reached! Take a break.
         </div>
@@ -127,13 +149,14 @@ export default function Home({ user }: { user: User }) {
 
       <button
         onClick={activeSession ? handleStop : handleStart}
-        className={`w-48 py-4 rounded-2xl text-lg font-bold transition-colors ${
+        disabled={actionLoading}
+        className={`w-48 py-4 rounded-2xl text-lg font-bold transition-colors disabled:opacity-50 ${
           activeSession
             ? 'bg-red/80 hover:bg-red text-base'
             : 'bg-green/80 hover:bg-green text-base'
         }`}
       >
-        {activeSession ? 'Stop' : 'Start'}
+        {actionLoading ? '…' : activeSession ? 'Stop' : 'Start'}
       </button>
 
       {activeSession && (
