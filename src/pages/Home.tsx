@@ -93,7 +93,7 @@ export default function Home({ user }: { user: User }) {
       .single()
 
     setActionLoading(false)
-    if (error) { setError('Failed to start: ' + error.message); return }
+    if (error) { setError('Failed to start: ' + JSON.stringify(error)); return }
     if (!data) { setError('Failed to start: no data returned'); return }
 
     const newSession = data as GamingSession

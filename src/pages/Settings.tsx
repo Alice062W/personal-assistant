@@ -36,10 +36,10 @@ export default function Settings({ user }: { user: User }) {
     setSaving(true)
     const { error } = await supabase
       .from('user_settings')
-      .upsert({ user_id: user.id, daily_limit_seconds: limitMinutes * 60 })
+      .upsert({ user_id: user.id, daily_limit_seconds: limitMinutes * 60 }, { onConflict: 'user_id' })
     setSaving(false)
     if (error) {
-      alert('Save failed: ' + error.message)
+      alert('Save failed: ' + JSON.stringify(error))
       return
     }
     setSaved(true)
